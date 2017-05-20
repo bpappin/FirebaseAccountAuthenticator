@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Udi Cohen
+ * Copyright (C) 2017 Udi Cohen, Joao Paulo Fernandes Ventura
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,8 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
+
+import com.google.android.gms.tasks.Tasks;
 
 import static android.accounts.AccountManager.KEY_BOOLEAN_RESULT;
 import static com.udinic.accounts_authenticator_example.authentication.AccountGeneral.*;
@@ -68,7 +70,7 @@ public class UdinicAuthenticator extends AbstractAccountAuthenticator {
         // Extract the username and password from the Account Manager, and ask
         // the server for an appropriate AuthToken.
         final AccountManager am = AccountManager.get(mContext);
-
+        Bundle authData = new Bundle();
         String authToken = am.peekAuthToken(account, authTokenType);
 
         Log.d(LOG_TAG, "> peekAuthToken returned - " + authToken);
@@ -76,23 +78,24 @@ public class UdinicAuthenticator extends AbstractAccountAuthenticator {
         // Lets give another try to authenticate the user
         if (TextUtils.isEmpty(authToken)) {
             final String password = am.getPassword(account);
-            if (password != null) {
+
+            if (!TextUtils.isEmpty(password)) {
+                authData.putString(AccountManager.KEY_ACCOUNT_NAME, account.name);
+                authData.putString(AccountManager.KEY_ACCOUNT_TYPE, account.type);
+                authData.putString(AccountManager.KEY_PASSWORD, password);
                 try {
                     Log.d(LOG_TAG, "> re-authenticating with the existing password");
-                    authToken = sServerAuthenticate.userSignIn(account.name, password, authTokenType);
+                    authData = Tasks.await(Tasks.forResult(authData).continueWithTask(new SignInTask()));
                 } catch (Exception e) {
                     e.printStackTrace();
+                    authData.clear();
                 }
             }
         }
 
         // If we get an authToken - we return it
-        if (!TextUtils.isEmpty(authToken)) {
-            final Bundle result = new Bundle();
-            result.putString(AccountManager.KEY_ACCOUNT_NAME, account.name);
-            result.putString(AccountManager.KEY_ACCOUNT_TYPE, account.type);
-            result.putString(AccountManager.KEY_AUTHTOKEN, authToken);
-            return result;
+        if (authData.containsKey(AccountManager.KEY_AUTHTOKEN)) {
+            return authData;
         }
 
         // If we get here, then we couldn't access the user's password - so we
@@ -107,7 +110,6 @@ public class UdinicAuthenticator extends AbstractAccountAuthenticator {
         bundle.putParcelable(AccountManager.KEY_INTENT, intent);
         return bundle;
     }
-
 
     @Override
     public String getAuthTokenLabel(String authTokenType) {
@@ -140,4 +142,5 @@ public class UdinicAuthenticator extends AbstractAccountAuthenticator {
     public Bundle updateCredentials(AccountAuthenticatorResponse response, Account account, String authTokenType, Bundle options) throws NetworkErrorException {
         return null;
     }
+
 }
